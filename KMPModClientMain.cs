@@ -48,6 +48,8 @@ namespace KMPModClient
 					Console.WriteLine ("Connected to " + address + " port " + port);
 					Console.WriteLine ("Downloading Mod List");
 					handleConnection ();
+					Console.WriteLine ("Press enter to exit");
+					Console.ReadLine ();
 
 
 				} else {
@@ -212,10 +214,10 @@ namespace KMPModClient
 			string[] current_gamedata_folders = Directory.GetDirectories (KSPPath + "/GameData/");
 			string[] current_backup_folders = Directory.GetDirectories (KSPPath + "/GameData-KMPModControl/");
 			foreach (string current_gamedata_folder in current_gamedata_folders) {
-				string stripped_gamedata_folder = current_gamedata_folder.Replace(KSPPath + "/GameData/","");
+				string stripped_gamedata_folder = current_gamedata_folder.Replace (KSPPath + "/GameData/", "");
 				bool copy_folder = true;
 				foreach (string current_backup_folder in current_backup_folders) {
-					if (Directory.Exists(KSPPath + "/GameData-KMPModControl/" + stripped_gamedata_folder))
+					if (Directory.Exists (KSPPath + "/GameData-KMPModControl/" + stripped_gamedata_folder))
 						copy_folder = false;
 				}
 				if (copy_folder) {
