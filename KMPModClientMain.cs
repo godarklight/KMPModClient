@@ -206,6 +206,7 @@ namespace KMPModClient
 		private static bool syncGameDataFolder (List<string> required_folders)
 		{
 			String KSPPath = Path.GetDirectoryName (System.Reflection.Assembly.GetExecutingAssembly ().Location);
+			bool missingmods = false;
 			//Make GameData-KMPModControl folder if needed
 			if (!Directory.Exists (KSPPath + "/GameData-KMPModControl"))
 				Directory.CreateDirectory (KSPPath + "/GameData-KMPModControl");
@@ -232,15 +233,17 @@ namespace KMPModClient
 
 			//Copy needed mods to GameData
 			foreach (string required_folder in required_folders) {
-				if (!Directory.Exists (KSPPath + "/GameData/" + required_folder)) {
-					if (Directory.Exists (KSPPath + "/GameData-KMPModControl/" + required_folder)) {
-						string varsource = KSPPath + "/GameData-KMPModControl/" + required_folder;
-						string vardestination = KSPPath + "/GameData/" + required_folder;
-						DirectoryCopy (varsource, vardestination, true);
-						Console.WriteLine ("Installing " + required_folder);
-					} else {
-						Console.WriteLine ("Missing: " + required_folder + " from GameData-KMPModControl");
-						return false;
+				if (required_folder != "KMP" && required_folder != "Squad") {
+					if (!Directory.Exists (KSPPath + "/GameData/" + required_folder)) {
+						if (Directory.Exists (KSPPath + "/GameData-KMPModControl/" + required_folder)) {
+							string varsource = KSPPath + "/GameData-KMPModControl/" + required_folder;
+							string vardestination = KSPPath + "/GameData/" + required_folder;
+							DirectoryCopy (varsource, vardestination, true);
+							Console.WriteLine ("Installing " + required_folder);
+						} else {
+							Console.WriteLine ("Missing: " + required_folder + " from GameData-KMPModControl");
+							missingmods = true;
+						}
 					}
 				}
 			}
@@ -262,7 +265,11 @@ namespace KMPModClient
 
 				}
 			}
-			return true;
+			if (missingmods) {
+				return false;
+			} else {
+				return true;
+			}
 		}
 		//Shamelessly stolen from the MSDN website. C# does not have a directory copy method...
 		private static void DirectoryCopy (string sourceDirName, string destDirName, bool copySubDirs)
