@@ -216,6 +216,10 @@ namespace KMPModClient
 			foreach (string current_gamedata_folder in current_gamedata_folders) {
 				string stripped_gamedata_folder = current_gamedata_folder.Replace (KSPPath + "/GameData/", "");
 				bool copy_folder = true;
+				//Don't back up KMP or Squad
+				if (stripped_gamedata_folder == "Squad" || stripped_gamedata_folder == "KMP") {
+					copy_folder = false;
+				}
 				foreach (string current_backup_folder in current_backup_folders) {
 					if (Directory.Exists (KSPPath + "/GameData-KMPModControl/" + stripped_gamedata_folder))
 						copy_folder = false;
@@ -243,6 +247,7 @@ namespace KMPModClient
 			string[] current_folders = Directory.GetDirectories (KSPPath + "/GameData/");
 			//Delete everything not on the list
 			foreach (string current_folder in current_folders) {
+				//Don't delete KMP or Squad
 				if (current_folder != KSPPath + "/GameData/KMP" && current_folder != KSPPath + "/GameData/Squad") {
 					bool deletefolder = true;
 					foreach (string required_folder in required_folders) {
