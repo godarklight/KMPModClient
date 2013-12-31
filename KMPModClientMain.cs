@@ -20,6 +20,11 @@ namespace KMPModClient
 
 		public static void Main (string[] args)
 		{
+			if (!File.Exists("KSP.exe")) {
+				Console.WriteLine("This program must be placed in the KSP directory next to KSP.exe");
+				Console.ReadLine();
+				return;
+			}
 			string address = "";
 			string port = "";
 			if (args.Length == 0) {
