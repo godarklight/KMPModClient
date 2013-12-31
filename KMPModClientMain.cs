@@ -6,7 +6,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Collections.Generic;
 using System.IO;
-using ICSharpCode.SharpZipLib.GZip;
+using System.IO.Compression;
 
 namespace KMPModClient
 {
@@ -307,38 +307,30 @@ namespace KMPModClient
 
 		private static byte[] Decompress (byte[] data)
 		{
-			if (data == null)
+			if (data == null) //Null data will cause the readers to throw
 				return null;
+
 			byte[] decompressedData = null;
-			MemoryStream ms = null;
-			GZipInputStream gzip = null;
-			try {
-				ms = new MemoryStream (data, false);
-				using (BinaryReader reader = new BinaryReader(ms)) {
-					bool compressedFlag = reader.ReadBoolean ();
-					if (compressedFlag == false) {
-						//Uncompressed
-						decompressedData = reader.ReadBytes (data.Length - 1);
-					} else {
-						//Decompress
-						Int32 size = reader.ReadInt32 ();
-						gzip = new GZipInputStream (ms);
-						decompressedData = new byte[size];
-						gzip.Read (decompressedData, 0, decompressedData.Length);
-						gzip.Close ();
-						ms.Close ();
-					}
-					reader.Close ();
-				}
-			} catch {
-				return null;
-			} finally {
-				if (gzip != null)
-					gzip.Dispose ();
-				if (ms != null)
-					ms.Dispose ();
+			MemoryStream compressedInput = new MemoryStream (data);
+
+			BinaryReader inputBinaryReader = new BinaryReader (compressedInput);
+			bool isCompressed = inputBinaryReader.ReadBoolean ();
+
+			if (!isCompressed) {
+				//Data is not compressed: (false), (Real message)
+				inputBinaryReader.Read(decompressedData, 0, decompressedData.Length - 1);
+			} else {
+				//Data is compressed: (true), int32 for decompressed size, (Real message)
+				int decompressedSize = inputBinaryReader.ReadInt32 ();
+				decompressedData = new byte[decompressedSize];
+				GZipStream decompressionStream = new GZipStream (compressedInput, CompressionMode.Decompress);
+				decompressionStream.Read (decompressedData, 0, decompressedSize);
+				decompressionStream.Close ();
 			}
+			inputBinaryReader.Close ();
+			compressedInput.Close ();
 			return decompressedData;
+
 		}
 	}
 }
