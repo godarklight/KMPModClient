@@ -15,6 +15,7 @@ namespace KMPModClient
 		static bool isInteractive = false;
 		static bool missingmods = false;
 		static bool shouldReceiveMessages;
+		static string KSPPath;
 		static Socket modTCPSocket;
 		static byte[] receive_buffer = new byte[8192];
 		const int HANDSHAKE_ID = 0;
@@ -22,7 +23,8 @@ namespace KMPModClient
 
 		public static void Main (string[] args)
 		{
-			if (!File.Exists ("KSP.exe")) {
+			KSPPath = Path.GetDirectoryName (System.Reflection.Assembly.GetExecutingAssembly ().Location);
+			if (!File.Exists (KSPPath + "/KSP.exe")) {
 				Console.WriteLine ("This program must be placed in the KSP directory next to KSP.exe");
 				Console.WriteLine ("Press enter to exit");
 				Console.ReadLine ();
@@ -216,7 +218,6 @@ namespace KMPModClient
 
 		private static bool syncGameDataFolder (List<string> required_folders)
 		{
-			String KSPPath = Path.GetDirectoryName (System.Reflection.Assembly.GetExecutingAssembly ().Location);
 			//Make GameData-KMPModControl folder if needed
 			if (!Directory.Exists (KSPPath + "/GameData-KMPModControl"))
 				Directory.CreateDirectory (KSPPath + "/GameData-KMPModControl");
