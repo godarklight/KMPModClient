@@ -13,6 +13,7 @@ namespace KMPModClient
 	class MainClass
 	{
 		static bool isInteractive = false;
+		static bool missingmods = false;
 		static bool shouldReceiveMessages;
 		static Socket modTCPSocket;
 		static byte[] receive_buffer = new byte[8192];
@@ -56,7 +57,7 @@ namespace KMPModClient
 					Console.WriteLine ("Connected to " + address + " port " + port);
 					Console.WriteLine ("Downloading Mod List");
 					handleConnection ();
-					if (isInteractive == true) {
+					if (isInteractive || missingmods) {
 						Console.WriteLine ("Press enter to exit");
 						Console.ReadLine ();
 					}
@@ -216,7 +217,6 @@ namespace KMPModClient
 		private static bool syncGameDataFolder (List<string> required_folders)
 		{
 			String KSPPath = Path.GetDirectoryName (System.Reflection.Assembly.GetExecutingAssembly ().Location);
-			bool missingmods = false;
 			//Make GameData-KMPModControl folder if needed
 			if (!Directory.Exists (KSPPath + "/GameData-KMPModControl"))
 				Directory.CreateDirectory (KSPPath + "/GameData-KMPModControl");
