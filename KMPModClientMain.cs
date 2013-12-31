@@ -12,6 +12,7 @@ namespace KMPModClient
 {
 	class MainClass
 	{
+		static bool isInteractive = false;
 		static bool shouldReceiveMessages;
 		static Socket modTCPSocket;
 		static byte[] receive_buffer = new byte[8192];
@@ -20,14 +21,16 @@ namespace KMPModClient
 
 		public static void Main (string[] args)
 		{
-			if (!File.Exists("KSP.exe")) {
-				Console.WriteLine("This program must be placed in the KSP directory next to KSP.exe");
-				Console.ReadLine();
+			if (!File.Exists ("KSP.exe")) {
+				Console.WriteLine ("This program must be placed in the KSP directory next to KSP.exe");
+				Console.WriteLine ("Press enter to exit");
+				Console.ReadLine ();
 				return;
 			}
 			string address = "";
 			string port = "";
 			if (args.Length == 0) {
+				isInteractive = true;
 				Console.WriteLine ("You can also run this program with arguments: KMPModClient [host] [port]");
 				Console.WriteLine ("Type the IP of the KMP Server: ");
 				address = Console.ReadLine ();
@@ -53,8 +56,10 @@ namespace KMPModClient
 					Console.WriteLine ("Connected to " + address + " port " + port);
 					Console.WriteLine ("Downloading Mod List");
 					handleConnection ();
-					Console.WriteLine ("Press enter to exit");
-					Console.ReadLine ();
+					if (isInteractive == true) {
+						Console.WriteLine ("Press enter to exit");
+						Console.ReadLine ();
+					}
 
 
 				} else {
@@ -323,7 +328,7 @@ namespace KMPModClient
 
 			if (!isCompressed) {
 				//Data is not compressed: (false), (Real message)
-				inputBinaryReader.Read(decompressedData, 0, decompressedData.Length - 1);
+				inputBinaryReader.Read (decompressedData, 0, decompressedData.Length - 1);
 			} else {
 				//Data is compressed: (true), int32 for decompressed size, (Real message)
 				int decompressedSize = inputBinaryReader.ReadInt32 ();
