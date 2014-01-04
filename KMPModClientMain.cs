@@ -21,14 +21,14 @@ namespace KMPModClient
 		const int HANDSHAKE_ID = 0;
 		static List<string> modList = new List<string> ();
 
-		public static void Main (string[] args)
+		public static int Main (string[] args)
 		{
 			KSPPath = Path.GetDirectoryName (System.Reflection.Assembly.GetExecutingAssembly ().Location);
 			if (!File.Exists (KSPPath + "/KSP.exe")) {
 				Console.WriteLine ("This program must be placed in the KSP directory next to KSP.exe");
 				Console.WriteLine ("Press enter to exit");
 				Console.ReadLine ();
-				return;
+				return 1;
 			}
 			string address = "";
 			string port = "";
@@ -67,8 +67,10 @@ namespace KMPModClient
 
 				} else {
 					Console.WriteLine ("Failed to connect to server.");
+					return 1;
 				}
 			}
+			return 0;
 		}
 
 		private static bool connectToServer (string hostname, string port)
