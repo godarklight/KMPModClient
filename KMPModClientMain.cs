@@ -7,20 +7,25 @@ using System.Net.Sockets;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 
 namespace KMPModClient
 {
-	class MainClass
+	class KMPModClient
 	{
+		//KMPModCilent specfic things.
 		static bool isInteractive = false;
 		static bool missingmods = false;
 		static bool shouldReceiveMessages;
+		static byte[] modControlBytes;
 		static string KSPPath;
 		static Socket modTCPSocket;
-		static byte[] receive_buffer = new byte[8192];
 		const int HANDSHAKE_ID = 0;
-		static List<string> modList = new List<string> ();
-
+		//Copied from KerbalMultiPlayer
+		public static Dictionary<string, SHAMod> modFileList = new Dictionary<string, SHAMod> ();
+		public static List<string> resourceList = new List<string> ();
+		public static string resourceControlMode = "blacklist";
+		#region Main logic
 		public static int Main (string[] args)
 		{
 			KSPPath = Path.GetDirectoryName (System.Reflection.Assembly.GetExecutingAssembly ().Location);
@@ -30,6 +35,7 @@ namespace KMPModClient
 				Console.ReadLine ();
 				return 1;
 			}
+			SetupModControl ();
 			string address = "";
 			string port = "";
 			if (args.Length == 0) {
@@ -55,10 +61,11 @@ namespace KMPModClient
 			}
 			if (!String.IsNullOrEmpty (address) && !String.IsNullOrEmpty (port)) {
 				Console.WriteLine ("Attempting to connect to " + address + " port " + port);
-				if (connectToServer (address, port)) {
+				if (ConnectToServer (address, port)) {
 					Console.WriteLine ("Connected to " + address + " port " + port);
 					Console.WriteLine ("Downloading Mod List");
-					handleConnection ();
+					HandleConnection ();
+					SyncGameDataFolder ();
 					if (isInteractive || missingmods) {
 						Console.WriteLine ("Press enter to exit");
 						Console.ReadLine ();
@@ -69,11 +76,41 @@ namespace KMPModClient
 					Console.WriteLine ("Failed to connect to server.");
 					return 1;
 				}
+			} else {
+				Console.WriteLine ("You must enter a server address and port number");
+				return 1;
 			}
 			return 0;
 		}
-
-		private static bool connectToServer (string hostname, string port)
+		#endregion
+		#region Mod Control Setup
+		private static void SetupModControl ()
+		{
+			//Make KMPModClient folder if needed
+			if (!Directory.Exists (KSPPath + "/KMPModClient/Mods")) {
+				Console.WriteLine ("Creating KMPModClient");
+				Directory.CreateDirectory (KSPPath + "/KMPModClient");
+			}
+			if (!Directory.Exists (KSPPath + "/KMPModClient/Mods")) {
+				Console.WriteLine ("Creating KMPModClient/Mods");
+				Directory.CreateDirectory (KSPPath + "/KMPModClient/Mods");
+			}
+			if (!Directory.Exists (KSPPath + "/KMPModClient/SHA")) {
+				Console.WriteLine ("Creating KMPModClient/SHA");
+				Directory.CreateDirectory (KSPPath + "/KMPModClient/SHA");
+			}
+			if (!Directory.Exists (KSPPath + "/KMPModClient/SHA/SHA-Objects")) {
+				Console.WriteLine ("Creating KMPModClient/SHA/SHA-Objects");
+				Directory.CreateDirectory (KSPPath + "/KMPModClient/SHA/SHA-Objects");
+			}
+			if (!File.Exists (KSPPath + "/KMPModClient/SHA/SHA-Index.txt")) {
+				Console.WriteLine ("Creating KMPModClient/SHA/SHA-Index.txt");
+				File.Create (KSPPath + "/KMPModClient/SHA/SHA-Index.txt");
+			}
+		}
+		#endregion
+		#region Connection code
+		private static bool ConnectToServer (string hostname, string port)
 		{
 			IPAddress address = null;
 			try {
@@ -101,189 +138,283 @@ namespace KMPModClient
 			return false;
 		}
 
-		private static void handleConnection ()
+		private static void HandleConnection ()
 		{
 			shouldReceiveMessages = true;
-			int received_buffer_length = 0;
-			int received_message_index = 0;
+			int bytes_to_receive = 8;
 			int message_type = 0;
-			int message_size = 0;
 			bool header_received = false;
+			byte[] receive_buffer = new byte[8];
 			while (shouldReceiveMessages) {
-				//Get the header
-				if (header_received == false) {
-					received_buffer_length = modTCPSocket.Receive (receive_buffer, 8 - received_message_index, SocketFlags.None);
-					received_message_index = received_message_index + received_buffer_length;
-					if (received_message_index == 8) {
+				bytes_to_receive -= modTCPSocket.Receive (receive_buffer, receive_buffer.Length - bytes_to_receive, bytes_to_receive, SocketFlags.None);
+				if (bytes_to_receive == 0) {
+					if (header_received == false) {
+						//We received the header
 						message_type = BitConverter.ToInt32 (receive_buffer, 0);
-						message_size = BitConverter.ToInt32 (receive_buffer, 4);
+						int message_size = BitConverter.ToInt32 (receive_buffer, 4);
 						if (message_size != 0) {
 							header_received = true;
-						}
-						received_buffer_length = 0;
-						received_message_index = 0;
-					}
-				}
-				//Get the message
-				if (header_received == true) {
-					byte[] received_message = new byte[message_size];
-					while (received_message_index < message_size) {
-						int bytes_to_receive = Math.Min (receive_buffer.Length, message_size - received_message_index);
-						received_buffer_length = modTCPSocket.Receive (receive_buffer, bytes_to_receive, SocketFlags.None);
-						Array.Copy (receive_buffer, 0, received_message, received_message_index, received_buffer_length);
-						received_message_index = received_message_index + received_buffer_length;
-						if (received_message_index == message_size) {
-							byte[] decompressedMessage = Decompress (received_message);
-							receiveMessage (message_type, decompressedMessage);
+							receive_buffer = new byte[message_size];
+							bytes_to_receive = message_size;
+						} else {
+							ReceiveMessage (message_type, null);
 							header_received = false;
-							received_buffer_length = 0;
-							received_message_index = 0;
 							message_type = 0;
-							message_size = 0;
+							bytes_to_receive = 8;
+							receive_buffer = new byte[8];
 						}
+					} else {
+						//We received the message data
+						byte[] decompressedMessage = Decompress (receive_buffer);
+						ReceiveMessage (message_type, decompressedMessage);
+						header_received = false;
+						message_type = 0;
+						bytes_to_receive = 8;
+						receive_buffer = new byte[8];
 					}
 				}
 			}
-			modTCPSocket.Shutdown (SocketShutdown.Both);
 			modTCPSocket.Close ();
 		}
 
-		private static void receiveMessage (int message_type, byte[] message_data)
+		private static void ReceiveMessage (int message_type, byte[] message_data)
 		{
 			if (message_type == HANDSHAKE_ID) {
+				Console.WriteLine ("Handshake received: " + message_data.Length + " bytes.");
 				shouldReceiveMessages = false;
-				//Easiest way to do it is hand it down. I'm too lazy to do things in the main thread.
-				parseModControl (getModControlFromHandshake (message_data));
+				GetModControlFromHandshake (message_data);
 			}
 		}
 
-		private static byte[] getModControlFromHandshake (byte[] message_data)
+		private static void GetModControlFromHandshake (byte[] message_data)
 		{
 			int server_version_length = BitConverter.ToInt32 (message_data, 4);
-			int kmpModControl_length = BitConverter.ToInt32 (message_data, 16 + server_version_length);
-			byte[] kmpModControl_bytes = new byte[kmpModControl_length];
-			Array.Copy (message_data, 20 + server_version_length, kmpModControl_bytes, 0, kmpModControl_length);
-			return kmpModControl_bytes;
+			int kmpModControl_length = BitConverter.ToInt32 (message_data, 20 + server_version_length);
+			modControlBytes = new byte[kmpModControl_length];
+			Array.Copy (message_data, 24 + server_version_length, modControlBytes, 0, kmpModControl_length);
+			ParseModFile ();
 		}
-
-		private static void parseModControl (byte[] mod_data)
+		#endregion
+		#region Parse Mod File
+		//Mostly copy pasted directly from KerbalMultiPlayer.
+		private static void ParseModFile ()
 		{
-			string mod_data_text = Encoding.UTF8.GetString (mod_data);
-			StringReader reader = new StringReader (mod_data_text);
-			string resourcemode = "blacklist";
-			List<string> allowedParts = new List<string> ();
-			Dictionary<string, string> hashes = new Dictionary<string, string> ();
-			List<string> resources = new List<string> ();
-
-			string line;
-			string[] splitline;
-			string readmode = "parts";
-
-			while (reader.Peek() != -1) {
-
-				line = reader.ReadLine ();
-				if (! String.IsNullOrEmpty (line)) {
-					if (line [0] != '#') {//allows commented lines
-						if (line [0] == '!') {//changing readmode
-							if (line.Contains ("partslist")) {
-								readmode = "parts";
-							} else if (line.Contains ("md5")) {
-								readmode = "md5";
-							} else if (line.Contains ("resource-blacklist")) { //allow all resources EXCEPT these in file
-								readmode = "resource";
-								resourcemode = "blacklist";
-							} else if (line.Contains ("resource-whitelist")) { //allow NO resources EXCEPT these in file
-								readmode = "resource";
-								resourcemode = "whitelist";
-							} else if (line.Contains ("required")) {
-								readmode = "required";
+			string ModFileContent = System.Text.Encoding.UTF8.GetString (modControlBytes);
+			using (System.IO.StringReader reader = new System.IO.StringReader(ModFileContent)) {
+				string resourcemode = "whitelist";
+				List<string> allowedParts = new List<string> ();
+				Dictionary<string, SHAMod> hashes = new Dictionary<string, SHAMod> ();
+				List<string> resources = new List<string> ();
+				string line;
+				string[] splitline = new string[2];
+				string readmode = "";
+				while (true) {
+					line = reader.ReadLine (); //Trim off any whitespace from the start or end. This would allow indenting of the mod file.
+					if (line == null) {
+						break;
+					}
+					line = line.Trim ();
+					try {
+						if (!String.IsNullOrEmpty (line) && line [0] != '#') { //Skip empty or commented lines.
+							if (line [0] == '!') { //changing readmode
+								string trimmedLine = line.Substring (1); //Returns 'partslist' from ' !partslist'
+								switch (trimmedLine) {
+								case "partslist":
+								case "required-files":
+								case "optional-files":
+									readmode = trimmedLine;
+									break;
+								case "resource-blacklist": //allow all resources EXCEPT these in file
+									readmode = "resource";
+									resourcemode = "blacklist";
+									break;
+								case "resource-whitelist": //allow NO resources EXCEPT these in file
+									readmode = "resource";
+									resourcemode = "whitelist";
+									break;
+								}
+							} else {
+								if (readmode == "partslist") {
+									allowedParts.Add (line);
+								}
+								if (readmode == "required-files") {
+									string hash = "";
+									splitline [0] = line;
+									if (line.Contains ("=")) { //Let's make the = on the end of the lines optional
+										splitline = line.Split ('=');
+										if (splitline.Length > 1) {
+											hash = splitline [1];
+										}
+									}
+									hashes.Add (splitline [0], new SHAMod { sha = hash, required = true });
+								}
+								if (readmode == "optional-files") {
+									splitline = line.Split ('=');
+									string hash = "";
+									splitline [0] = line;
+									if (line.Contains ("=")) { //Let's make the = on the end of the lines optional
+										splitline = line.Split ('=');
+										if (splitline.Length > 1) {
+											hash = splitline [1];
+										}
+									}
+									hashes.Add (splitline [0], new SHAMod { sha = hash, required = false });
+								}
+								if (readmode == "resource") {
+									resources.Add (line);
+								}
 							}
-						} else if (readmode == "parts") {
-							allowedParts.Add (line);
-						} else if (readmode == "md5") {
-							splitline = line.Split ('=');
-							hashes.Add (splitline [0], splitline [1]); //stores path:md5
-						} else if (readmode == "resource") {
-							resources.Add (line);
-						} else if (readmode == "required") {
-							modList.Add (line);
 						}
+					} catch (Exception e) {
+						Console.WriteLine (e.ToString ());
 					}
-				}
-			}
-			if (resourcemode == "I hate compiler warnings" && resourcemode == "I really hate compiler warnings") //I can't really be bothered to work around this.
-				Console.WriteLine ("End the universe, your computer just went full retard");
 
-			syncGameDataFolder (modList);
-			reader.Close ();
+				}
+				//make all the vars global once we're done parsing
+				modFileList = hashes;
+				resourceControlMode = resourcemode;
+				resourceList = resources;
+			}
 		}
-
-		private static bool syncGameDataFolder (List<string> required_folders)
+		#endregion
+		#region Sync GameData logic
+		private static bool SyncGameDataFolder ()
 		{
-			//Make GameData-KMPModControl folder if needed
-			if (!Directory.Exists (KSPPath + "/GameData-KMPModControl"))
-				Directory.CreateDirectory (KSPPath + "/GameData-KMPModControl");
+			BackupModsFromGameData ();
+			BackupSHAObjects ();
+			DeleteModsFromGameData ();
+			CopyNeededModsToGameData ();
+			CheckForMissingMods ();
+			ReplaceModsWithSpecifiedShaVersion ();
 
-			//Backup everything not saved in GameData-KMPModControl
-			string[] current_gamedata_folders = Directory.GetDirectories (KSPPath + "/GameData/");
-			string[] current_backup_folders = Directory.GetDirectories (KSPPath + "/GameData-KMPModControl/");
-			foreach (string current_gamedata_folder in current_gamedata_folders) {
-				string stripped_gamedata_folder = current_gamedata_folder.Replace (KSPPath + "/GameData/", "");
-				bool copy_folder = true;
-				//Don't back up KMP or Squad
-				if (stripped_gamedata_folder == "Squad" || stripped_gamedata_folder == "KMP") {
-					copy_folder = false;
-				}
-				foreach (string current_backup_folder in current_backup_folders) {
-					if (Directory.Exists (KSPPath + "/GameData-KMPModControl/" + stripped_gamedata_folder))
-						copy_folder = false;
-				}
-				if (copy_folder) {
-					Console.WriteLine ("Backing up mod: " + stripped_gamedata_folder);
-					DirectoryCopy (current_gamedata_folder, KSPPath + "/GameData-KMPModControl/" + stripped_gamedata_folder, true);
-				}
-			}
-
-			//Copy needed mods to GameData
-			foreach (string required_folder in required_folders) {
-				if (required_folder != "KMP" && required_folder != "Squad") {
-					if (!Directory.Exists (KSPPath + "/GameData/" + required_folder)) {
-						if (Directory.Exists (KSPPath + "/GameData-KMPModControl/" + required_folder)) {
-							string varsource = KSPPath + "/GameData-KMPModControl/" + required_folder;
-							string vardestination = KSPPath + "/GameData/" + required_folder;
-							DirectoryCopy (varsource, vardestination, true);
-							Console.WriteLine ("Installing " + required_folder);
-						} else {
-							Console.WriteLine ("Missing: " + required_folder + " from GameData-KMPModControl");
-							missingmods = true;
-						}
-					}
-				}
-			}
-			string[] current_folders = Directory.GetDirectories (KSPPath + "/GameData/");
-			//Delete everything not on the list
-			foreach (string current_folder in current_folders) {
-				//Don't delete KMP or Squad
-				if (current_folder != KSPPath + "/GameData/KMP" && current_folder != KSPPath + "/GameData/Squad") {
-					bool deletefolder = true;
-					foreach (string required_folder in required_folders) {
-						if (KSPPath + "/GameData/" + required_folder == current_folder) {
-							deletefolder = false;
-						}
-					}
-					if (deletefolder == true) {
-						Console.WriteLine ("Deleting: " + current_folder);
-						Directory.Delete (current_folder, true);
-					}
-
-				}
-			}
 			if (missingmods) {
 				return false;
 			} else {
 				return true;
 			}
 		}
+
+		private static void BackupModsFromGameData ()
+		{   
+			//Copy new mods from GameData to KMPModClient/Mods/
+			string[] current_gamedata_folders = Directory.GetDirectories (KSPPath + "/GameData/");
+			string[] current_backup_folders = Directory.GetDirectories (KSPPath + "/KMPModClient/Mods/");
+			foreach (string current_gamedata_folder in current_gamedata_folders) {
+				string stripped_gamedata_folder = current_gamedata_folder.Replace (KSPPath + "/GameData/", "");
+				bool copy_folder = true;
+				//Don't back up KMP or Squad
+				if (stripped_gamedata_folder == "Squad" || stripped_gamedata_folder == "KMP" || stripped_gamedata_folder == "000_Toolbar") {
+					copy_folder = false;
+				}
+				foreach (string current_backup_folder in current_backup_folders) {
+					if (Directory.Exists (KSPPath + "/KMPModClient/Mods/" + stripped_gamedata_folder))
+						copy_folder = false;
+				}
+				if (copy_folder) {
+					Console.WriteLine ("Backing up mod: " + stripped_gamedata_folder);
+					DirectoryCopy (current_gamedata_folder, KSPPath + "/KMPModClient/Mods/" + stripped_gamedata_folder, true);
+				}
+			}
+		}
+
+		private static void BackupSHAObjects ()
+		{
+			//Not supported yet.
+		}
+
+		private static void DeleteModsFromGameData ()
+		{
+			string[] current_folders = Directory.GetDirectories (KSPPath + "/GameData/");
+			//Delete everything not on the list
+			foreach (string current_folder in current_folders) {
+				bool deletefolder;
+				string stripped_current_folder = current_folder.Replace (KSPPath + "/GameData/", "");
+				if (resourceControlMode == "whitelist") {
+					//In whitelist mode, delete mods not part of required/optional or resource list.
+					deletefolder = true;
+					foreach (string modFile in modFileList.Keys) {
+						if (modFile.StartsWith (stripped_current_folder)) {
+							deletefolder = false;
+						}
+					}
+					foreach (string resource in resourceList) {
+						if (resource.StartsWith (stripped_current_folder)) {
+							deletefolder = false;
+						}
+					}
+				} else {
+					//In blacklist mode, delete blacklisted mods.
+					deletefolder = false;
+					foreach (string resource in resourceList) {
+						if (resource.StartsWith (stripped_current_folder)) {
+							deletefolder = true;
+						}
+					}
+				}
+				//Don't delete KMP, Squad or Toolbar.
+				if (stripped_current_folder == "KMP" || stripped_current_folder == "Squad" || stripped_current_folder == "000_Toolbar") {
+					deletefolder = false;
+				}
+				if (deletefolder) {
+					Console.WriteLine ("Deleting: " + stripped_current_folder);
+					Directory.Delete (current_folder, true);
+				}
+			}
+		}
+
+		private static void CopyNeededModsToGameData ()
+		{
+			string[] backup_folders = Directory.GetDirectories (KSPPath + "/KMPModClient/Mods/");
+			//Delete everything not on the list
+			foreach (string backup_folder in backup_folders) {
+				//Delete everything not on the list
+				bool copyfolder;
+				string stripped_backup_folder = backup_folder.Replace (KSPPath + "/KMPModClient/Mods/", "");
+				if (resourceControlMode == "whitelist") {
+					//In whitelist mode, copy mods in the required/optional or resource list.
+					copyfolder = false;
+					foreach (string modFile in modFileList.Keys) {
+						if (modFile.StartsWith (stripped_backup_folder)) {
+							copyfolder = true;
+						}
+					}
+					foreach (string resource in resourceList) {
+						if (resource.StartsWith (stripped_backup_folder)) {
+							copyfolder = true;
+						}
+					}
+				} else {
+					//In blacklist mode, copy mods listed in required/optional.
+					copyfolder = true;
+					foreach (string modFile in modFileList.Keys) {
+						if (modFile.StartsWith (stripped_backup_folder)) {
+							copyfolder = false;
+						}
+					}
+				}
+				//Don't copy folders that already exist
+				if (Directory.Exists (KSPPath + "/GameData/" + stripped_backup_folder)) {
+					copyfolder = false;
+				}
+				//Don't copy KMP, Squad or Toolbar.
+				if (stripped_backup_folder == "KMP" || stripped_backup_folder == "Squad" || stripped_backup_folder == "000_Toolbar") {
+					copyfolder = false;
+				}
+				if (copyfolder) {
+					Console.WriteLine ("Installing: " + stripped_backup_folder);
+					string varsource = KSPPath + "/KMPModClient/Mods/" + stripped_backup_folder;
+					string vardestination = KSPPath + "/GameData/" + stripped_backup_folder;
+					DirectoryCopy (varsource, vardestination, true);
+				}
+			}
+		}
+
+		private static void ReplaceModsWithSpecifiedShaVersion ()
+		{
+			//Not supported yet.
+		}
+		#endregion
+		#region Directory copy code
 		//Shamelessly stolen from the MSDN website. C# does not have a directory copy method...
 		private static void DirectoryCopy (string sourceDirName, string destDirName, bool copySubDirs)
 		{
@@ -318,32 +449,55 @@ namespace KMPModClient
 			}
 		}
 
+		private static void CheckForMissingMods ()
+		{
+			foreach (KeyValuePair <string,SHAMod> modFile in modFileList) {
+				if (!File.Exists (KSPPath + "/GameData/" + modFile.Key)) {
+					if (modFile.Value.required) {
+						Console.WriteLine ("Missing required mod: " + modFile.Key);
+						missingmods = true;
+					} else {
+						Console.WriteLine ("Missing optional mod: " + modFile.Key);
+					}
+				}
+			}
+		}
+		#endregion
+		#region Decompression code
 		private static byte[] Decompress (byte[] data)
 		{
 			if (data == null) //Null data will cause the readers to throw
 				return null;
 
 			byte[] decompressedData = null;
-			MemoryStream compressedInput = new MemoryStream (data);
+			using (MemoryStream compressedInput = new MemoryStream(data)) {
 
-			BinaryReader inputBinaryReader = new BinaryReader (compressedInput);
-			bool isCompressed = inputBinaryReader.ReadBoolean ();
+				using (BinaryReader inputBinaryReader = new BinaryReader(compressedInput)) {
+					bool isCompressed = inputBinaryReader.ReadBoolean ();
 
-			if (!isCompressed) {
-				//Data is not compressed: (false), (Real message)
-				inputBinaryReader.Read (decompressedData, 0, decompressedData.Length - 1);
-			} else {
-				//Data is compressed: (true), int32 for decompressed size, (Real message)
-				int decompressedSize = inputBinaryReader.ReadInt32 ();
-				decompressedData = new byte[decompressedSize];
-				GZipStream decompressionStream = new GZipStream (compressedInput, CompressionMode.Decompress);
-				decompressionStream.Read (decompressedData, 0, decompressedSize);
-				decompressionStream.Close ();
+					if (!isCompressed) {
+						//Data is not compressed: (false), (Real message)
+						inputBinaryReader.Read (decompressedData, 0, decompressedData.Length - 1);
+					} else {
+						//Data is compressed: (true), int32 for decompressed size, (Real message)
+						int decompressedSize = inputBinaryReader.ReadInt32 ();
+						decompressedData = new byte[decompressedSize];
+						using (GZipStream decompressionStream = new GZipStream(compressedInput, CompressionMode.Decompress)) {
+							decompressionStream.Read (decompressedData, 0, decompressedSize);
+						}
+					}
+				}
 			}
-			inputBinaryReader.Close ();
-			compressedInput.Close ();
 			return decompressedData;
 
 		}
+		#endregion
+	}
+	//Copied directly from KerbalMultiPlayer
+	public class SHAMod
+	{
+		public string sha { get; set; }
+
+		public bool required { get; set; }
 	}
 }
