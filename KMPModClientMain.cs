@@ -29,7 +29,7 @@ namespace KMPModClient
 		public static int Main (string[] args)
 		{
 			KSPPath = Path.GetDirectoryName (System.Reflection.Assembly.GetExecutingAssembly ().Location);
-			if (!File.Exists (KSPPath + "/KSP.exe")) {
+			if (!File.Exists (Path.Combine (KSPPath, "KSP.exe"))) {
 				Console.WriteLine ("This program must be placed in the KSP directory next to KSP.exe");
 				Console.WriteLine ("Press enter to exit");
 				Console.ReadLine ();
@@ -87,25 +87,27 @@ namespace KMPModClient
 		private static void SetupModControl ()
 		{
 			//Make KMPModClient folder if needed
-			if (!Directory.Exists (KSPPath + "/KMPModClient/Mods")) {
-				Console.WriteLine ("Creating KMPModClient");
-				Directory.CreateDirectory (KSPPath + "/KMPModClient");
+			CreateDirectoryIfNeeded (Path.Combine (KSPPath, "KMPModClient", "Mods"));
+			CreateDirectoryIfNeeded (Path.Combine (KSPPath, "KMPModClient", "Mods"));
+			CreateDirectoryIfNeeded (Path.Combine (KSPPath, "KMPModClient", "SHA"));
+			CreateDirectoryIfNeeded (Path.Combine (KSPPath, "KMPModClient", "SHA", "SHA-Objects"));
+			CreateFileIfNeeded (Path.Combine (KSPPath, "KMPModClient", "SHA", "SHA-Index.txt"));
+
+		}
+
+		private static void CreateDirectoryIfNeeded (string directory)
+		{
+			if (!Directory.Exists (directory)) {
+				Console.WriteLine ("Creating " + directory);
+				Directory.CreateDirectory (directory);
 			}
-			if (!Directory.Exists (KSPPath + "/KMPModClient/Mods")) {
-				Console.WriteLine ("Creating KMPModClient/Mods");
-				Directory.CreateDirectory (KSPPath + "/KMPModClient/Mods");
-			}
-			if (!Directory.Exists (KSPPath + "/KMPModClient/SHA")) {
-				Console.WriteLine ("Creating KMPModClient/SHA");
-				Directory.CreateDirectory (KSPPath + "/KMPModClient/SHA");
-			}
-			if (!Directory.Exists (KSPPath + "/KMPModClient/SHA/SHA-Objects")) {
-				Console.WriteLine ("Creating KMPModClient/SHA/SHA-Objects");
-				Directory.CreateDirectory (KSPPath + "/KMPModClient/SHA/SHA-Objects");
-			}
-			if (!File.Exists (KSPPath + "/KMPModClient/SHA/SHA-Index.txt")) {
-				Console.WriteLine ("Creating KMPModClient/SHA/SHA-Index.txt");
-				File.Create (KSPPath + "/KMPModClient/SHA/SHA-Index.txt");
+		}
+
+		private static void CreateFileIfNeeded (string directory)
+		{
+			if (!File.Exists (directory)) {
+				Console.WriteLine ("Creating " + directory);
+				File.Create (directory);
 			}
 		}
 		#endregion
@@ -246,7 +248,10 @@ namespace KMPModClient
 											hash = splitline [1];
 										}
 									}
-									hashes.Add (splitline [0], new SHAMod { sha = hash, required = true });
+									hashes.Add (splitline [0], new SHAMod {
+										sha = hash,
+										required = true
+									});
 								}
 								if (readmode == "optional-files") {
 									splitline = line.Split ('=');
@@ -258,7 +263,10 @@ namespace KMPModClient
 											hash = splitline [1];
 										}
 									}
-									hashes.Add (splitline [0], new SHAMod { sha = hash, required = false });
+									hashes.Add (splitline [0], new SHAMod {
+										sha = hash,
+										required = false
+									});
 								}
 								if (readmode == "resource") {
 									resources.Add (line);
@@ -297,22 +305,24 @@ namespace KMPModClient
 		private static void BackupModsFromGameData ()
 		{   
 			//Copy new mods from GameData to KMPModClient/Mods/
-			string[] current_gamedata_folders = Directory.GetDirectories (KSPPath + "/GameData/");
-			string[] current_backup_folders = Directory.GetDirectories (KSPPath + "/KMPModClient/Mods/");
+			string[] current_gamedata_folders = Directory.GetDirectories (Path.Combine (KSPPath, "GameData"));
+			string[] current_backup_folders = Directory.GetDirectories (Path.Combine (KSPPath, "KMPModClient", "Mods"));
 			foreach (string current_gamedata_folder in current_gamedata_folders) {
-				string stripped_gamedata_folder = current_gamedata_folder.Replace (KSPPath + "/GameData/", "");
+				//Remove the Fullpath and leading path seperator
+				string stripped_gamedata_folder = current_gamedata_folder.Replace (Path.Combine (KSPPath, "GameData"), "").Remove (0, 1);
 				bool copy_folder = true;
 				//Don't back up KMP or Squad
-				if (stripped_gamedata_folder == "Squad" || stripped_gamedata_folder == "KMP" || stripped_gamedata_folder == "000_Toolbar") {
+				if (stripped_gamedata_folder.ToLowerInvariant () == "squad" || stripped_gamedata_folder.ToLowerInvariant () == "kmp" || stripped_gamedata_folder.ToLowerInvariant () == "000_toolbar") {
 					copy_folder = false;
 				}
 				foreach (string current_backup_folder in current_backup_folders) {
-					if (Directory.Exists (KSPPath + "/KMPModClient/Mods/" + stripped_gamedata_folder))
+					if (Directory.Exists (Path.Combine (KSPPath, "KMPModClient", "Mods", stripped_gamedata_folder))) {
 						copy_folder = false;
+					}
 				}
 				if (copy_folder) {
 					Console.WriteLine ("Backing up mod: " + stripped_gamedata_folder);
-					DirectoryCopy (current_gamedata_folder, KSPPath + "/KMPModClient/Mods/" + stripped_gamedata_folder, true);
+					DirectoryCopy (current_gamedata_folder, Path.Combine (KSPPath, "KMPModClient", "Mods", stripped_gamedata_folder), true);
 				}
 			}
 		}
@@ -324,11 +334,11 @@ namespace KMPModClient
 
 		private static void DeleteModsFromGameData ()
 		{
-			string[] current_folders = Directory.GetDirectories (KSPPath + "/GameData/");
+			string[] current_folders = Directory.GetDirectories (Path.Combine (KSPPath, "GameData"));
 			//Delete everything not on the list
 			foreach (string current_folder in current_folders) {
 				bool deletefolder;
-				string stripped_current_folder = current_folder.Replace (KSPPath + "/GameData/", "");
+				string stripped_current_folder = current_folder.Replace (Path.Combine (KSPPath, "GameData"), "").Remove (0, 1);
 				if (resourceControlMode == "whitelist") {
 					//In whitelist mode, delete mods not part of required/optional or resource list.
 					deletefolder = true;
@@ -352,7 +362,7 @@ namespace KMPModClient
 					}
 				}
 				//Don't delete KMP, Squad or Toolbar.
-				if (stripped_current_folder == "KMP" || stripped_current_folder == "Squad" || stripped_current_folder == "000_Toolbar") {
+				if (stripped_current_folder.ToLowerInvariant () == "kmp" || stripped_current_folder.ToLowerInvariant () == "squad" || stripped_current_folder.ToLowerInvariant () == "000_toolbar") {
 					deletefolder = false;
 				}
 				if (deletefolder) {
@@ -364,12 +374,12 @@ namespace KMPModClient
 
 		private static void CopyNeededModsToGameData ()
 		{
-			string[] backup_folders = Directory.GetDirectories (KSPPath + "/KMPModClient/Mods/");
+			string[] backup_folders = Directory.GetDirectories (Path.Combine (KSPPath, "KMPModClient", "Mods"));
 			//Delete everything not on the list
 			foreach (string backup_folder in backup_folders) {
 				//Delete everything not on the list
 				bool copyfolder;
-				string stripped_backup_folder = backup_folder.Replace (KSPPath + "/KMPModClient/Mods/", "");
+				string stripped_backup_folder = backup_folder.Replace (Path.Combine (KSPPath, "KMPModClient", "Mods"), "").Remove (0, 1);
 				if (resourceControlMode == "whitelist") {
 					//In whitelist mode, copy mods in the required/optional or resource list.
 					copyfolder = false;
@@ -393,17 +403,17 @@ namespace KMPModClient
 					}
 				}
 				//Don't copy folders that already exist
-				if (Directory.Exists (KSPPath + "/GameData/" + stripped_backup_folder)) {
+				if (Directory.Exists (Path.Combine (KSPPath, "GameData", stripped_backup_folder))) {
 					copyfolder = false;
 				}
 				//Don't copy KMP, Squad or Toolbar.
-				if (stripped_backup_folder == "KMP" || stripped_backup_folder == "Squad" || stripped_backup_folder == "000_Toolbar") {
+				if (stripped_backup_folder.ToLowerInvariant () == "kmp" || stripped_backup_folder.ToLowerInvariant () == "squad" || stripped_backup_folder.ToLowerInvariant () == "000_toolbar") {
 					copyfolder = false;
 				}
 				if (copyfolder) {
 					Console.WriteLine ("Installing: " + stripped_backup_folder);
-					string varsource = KSPPath + "/KMPModClient/Mods/" + stripped_backup_folder;
-					string vardestination = KSPPath + "/GameData/" + stripped_backup_folder;
+					string varsource = Path.Combine (KSPPath, "KMPModClient", "Mods", stripped_backup_folder);
+					string vardestination = Path.Combine (KSPPath, "GameData", stripped_backup_folder);
 					DirectoryCopy (varsource, vardestination, true);
 				}
 			}
@@ -452,7 +462,7 @@ namespace KMPModClient
 		private static void CheckForMissingMods ()
 		{
 			foreach (KeyValuePair <string,SHAMod> modFile in modFileList) {
-				if (!File.Exists (KSPPath + "/GameData/" + modFile.Key)) {
+				if (!File.Exists (Path.Combine (KSPPath, "GameData", modFile.Key))) {
 					if (modFile.Value.required) {
 						Console.WriteLine ("Missing required mod: " + modFile.Key);
 						missingmods = true;
