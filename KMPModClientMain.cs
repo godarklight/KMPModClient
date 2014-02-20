@@ -15,12 +15,16 @@ namespace KMPModClient
 	{
 		//KMPModCilent specfic things.
 		static bool isInteractive = false;
-		static bool missingmods = false;
+		static bool missingMods = false;
+		static bool serverVersionError = false;
 		static bool shouldReceiveMessages;
+		static int serverVersion = 0;
 		static byte[] modControlBytes;
 		static string KSPPath;
 		static Socket modTCPSocket;
 		const int HANDSHAKE_ID = 0;
+		const int MAX_SERVER_VERSION = 10015;
+		const int MIN_SERVER_VERSION = 10015;
 		//Copied from KerbalMultiPlayer
 		public static Dictionary<string, SHAMod> modFileList = new Dictionary<string, SHAMod> ();
 		public static List<string> resourceList = new List<string> ();
@@ -65,8 +69,12 @@ namespace KMPModClient
 					Console.WriteLine ("Connected to " + address + " port " + port);
 					Console.WriteLine ("Downloading Mod List");
 					HandleConnection ();
-					SyncGameDataFolder ();
-					if (isInteractive || missingmods) {
+					if (!serverVersionError) {
+						SyncGameDataFolder ();
+					} else {
+						Console.WriteLine ("KMP Protocol " + serverVersion + " is not supported. This version supports " + MIN_SERVER_VERSION + "-" + MAX_SERVER_VERSION + ".");
+					}
+					if (isInteractive || missingMods || serverVersionError) {
 						Console.WriteLine ("Press enter to exit");
 						Console.ReadLine ();
 					}
@@ -182,9 +190,15 @@ namespace KMPModClient
 		private static void ReceiveMessage (int message_type, byte[] message_data)
 		{
 			if (message_type == HANDSHAKE_ID) {
-				Console.WriteLine ("Handshake received: " + message_data.Length + " bytes.");
 				shouldReceiveMessages = false;
-				GetModControlFromHandshake (message_data);
+				Console.WriteLine ("Handshake received: " + message_data.Length + " bytes.");
+				serverVersion = BitConverter.ToInt32 (message_data, 0);
+				if (serverVersion < MIN_SERVER_VERSION || serverVersion > MAX_SERVER_VERSION) {
+					serverVersionError = true;
+					return;
+				} else {
+					GetModControlFromHandshake (message_data);
+				}
 			}
 		}
 
@@ -295,7 +309,7 @@ namespace KMPModClient
 			CheckForMissingMods ();
 			ReplaceModsWithSpecifiedShaVersion ();
 
-			if (missingmods) {
+			if (missingMods) {
 				return false;
 			} else {
 				return true;
@@ -465,7 +479,7 @@ namespace KMPModClient
 				if (!File.Exists (Path.Combine (KSPPath, "GameData", modFile.Key))) {
 					if (modFile.Value.required) {
 						Console.WriteLine ("Missing required mod: " + modFile.Key);
-						missingmods = true;
+						missingMods = true;
 					} else {
 						Console.WriteLine ("Missing optional mod: " + modFile.Key);
 					}
