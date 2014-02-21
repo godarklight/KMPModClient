@@ -409,10 +409,10 @@ namespace KMPModClient
 					}
 				} else {
 					//In blacklist mode, copy mods listed in required/optional.
-					copyfolder = true;
+					copyfolder = false;
 					foreach (string modFile in modFileList.Keys) {
 						if (modFile.StartsWith (stripped_backup_folder)) {
-							copyfolder = false;
+							copyfolder = true;
 						}
 					}
 				}
