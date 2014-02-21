@@ -3,11 +3,11 @@ THIS PROGRAM IS STILL EXPERIMENTAL
   
 This is a command line program to connect to KMP servers and sync your GameData folder.  
   
-This will connect to the server straight away and use the default port of 2076:  
+This will connect to the server straight away with the specified address and default port of 2076:  
 mono KMPModClient.exe server_ip  
   
-This will connect to the server straight away:  
-mono KMPModClient.exe username server_ip server_port  
+This will connect to the server straight away with the specified address and port:  
+mono KMPModClient.exe server_ip server_port  
   
 This will ask for info after starting:  
 mono KMPModClient.exe  
